@@ -1,115 +1,177 @@
-import 'package:flutter/material.dart';
+import "dart:convert";
+
+import "package:flutter/material.dart";
+import "package:http/http.dart" as http;
+import "package:intl/intl.dart";
+
+const apiBase = "https://radioscraper.com";
 
 void main() {
-  runApp(const MyApp());
+  runApp(const Radioscraper());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class Radioscraper extends StatelessWidget {
+  const Radioscraper({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: "Radioscraper",
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.blueGrey,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const HomePage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class Radio {
+  final String slug;
+  final String name;
+  final int playCount;
+  final Play? lastPlay;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  const Radio({required this.slug, required this.name, required this.playCount, this.lastPlay});
+
+  factory Radio.fromJson(Map<String, dynamic> json) {
+    return Radio(
+      slug: json["slug"],
+      name: json["name"],
+      playCount: json["play_count"],
+      lastPlay: json["last_play"] != null ? Play.fromJson(json["last_play"]) : null,
+    );
+  }
+}
+
+class Play {
+  final String artist;
+  final String title;
+  final DateTime timestamp;
+
+  const Play({
+    required this.artist,
+    required this.title,
+    required this.timestamp,
+  });
+
+  factory Play.fromJson(Map<String, dynamic> json) {
+    return Play(
+      artist: json["artist_name"],
+      title: json["title"],
+      timestamp: DateTime.parse(json["timestamp"]),
+    );
+  }
+}
+
+Future<List<Radio>> fetchRadios() async {
+  final response = await http.get(Uri.parse("$apiBase/api/radios"));
+
+  if (response.statusCode == 200) {
+    return [for (final r in jsonDecode(response.body)["radios"]) Radio.fromJson(r)];
+  } else {
+    throw Exception("Failed to load radios");
+  }
+}
+
+class _HomePageState extends State<HomePage> {
+  late Future<List<Radio>> radios;
+
+  @override
+  void initState() {
+    super.initState();
+    radios = fetchRadios();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text("Radioscraper"),
       ),
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
-            ),
-          ],
+        child: FutureBuilder<List<Radio>>(
+          future: radios,
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              return RadioList(radios: snapshot.data!);
+            } else if (snapshot.hasError) {
+              return Center(child: Text("${snapshot.error}"));
+            }
+
+            return const Center(child: CircularProgressIndicator());
+          },
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+}
+
+class RadioList extends StatelessWidget {
+  final List<Radio> radios;
+
+  const RadioList({super.key, required this.radios});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(4.0),
+      children: [for (final radio in radios) RadioBox(radio: radio)],
+    );
+  }
+}
+
+class RadioBox extends StatelessWidget {
+  final Radio radio;
+
+  const RadioBox({super.key, required this.radio});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 8.0),
+        padding: const EdgeInsets.all(8.0),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: Colors.black,
+            width: 2,
+          ),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(radio.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          if (radio.lastPlay != null)
+            PlayWidget(play: radio.lastPlay!)
+          else
+            const Padding(padding: EdgeInsets.only(top: 4.0), child: Text("Nothing playing")),
+        ]));
+  }
+}
+
+class PlayWidget extends StatelessWidget {
+  final Play play;
+
+  const PlayWidget({super.key, required this.play});
+
+  @override
+  Widget build(BuildContext context) {
+    DateFormat format = DateFormat('dd.MM.yyyy @ kk:mm');
+
+    return Padding(
+        padding: const EdgeInsets.only(top: 4.0),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text(play.artist, style: const TextStyle(fontWeight: FontWeight.bold)),
+            const Text(": "),
+            Text(play.title),
+          ]),
+          Text(format.format(play.timestamp)),
+        ]));
   }
 }
